@@ -34,6 +34,7 @@ class MyKeyboardService : InputMethodService(), KeyboardView.Listener {
     override fun onCreateInputView(): View {
         val v = KeyboardView(this, ThemeStore.current(this))
         v.listener = this
+        v.setCalc(prefs.getBoolean("calc", false))
         v.setLang(savedLang())
         kb = v
         return v
@@ -74,7 +75,15 @@ class MyKeyboardService : InputMethodService(), KeyboardView.Listener {
 
     // ---------- KeyboardView.Listener ----------
     override fun onText(text: String) {
-        currentInputConnection?.commitText(text, 1)
+        val ic = currentInputConnection ?: return
+        // ماشین‌حساب روشن: بعد از «=» جواب عبارت پشت مکان‌نما را هم می‌نویسد
+        if (text == "=" && prefs.getBoolean("calc", false)) {
+            val before = ic.getTextBeforeCursor(80, 0)?.toString() ?: ""
+            val result = Calc.evaluateTrailing(before)
+            ic.commitText(if (result != null) "=$result" else "=", 1)
+            return
+        }
+        ic.commitText(text, 1)
     }
 
     override fun onDelete() {
@@ -98,5 +107,9 @@ class MyKeyboardService : InputMethodService(), KeyboardView.Listener {
 
     override fun onLangChanged(lang: Lang) {
         prefs.edit().putString("lang", if (lang == Lang.FA) "fa" else "en").apply()
+    }
+
+    override fun onCalcChanged(on: Boolean) {
+        prefs.edit().putBoolean("calc", on).apply()
     }
 }

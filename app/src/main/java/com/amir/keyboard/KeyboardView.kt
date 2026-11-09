@@ -2,6 +2,7 @@ package com.amir.keyboard
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
@@ -11,6 +12,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 enum class Lang { EN, FA }
@@ -26,15 +28,18 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         fun onEnter()
         fun onPickIme()
         fun onLangChanged(lang: Lang)
+        fun onCalcChanged(on: Boolean)
     }
 
-    private enum class Kind { NORMAL, SPECIAL, ACCENT }
+    // دو رنگ بیشتر نداریم: کلیدهای نوشتن (چرم کنیاکی) و کلیدهای خاص (چرم تیره)
+    private enum class Kind { NORMAL, SPECIAL }
 
     var listener: Listener? = null
 
     private var lang = Lang.EN
     private var page = Page.LETTERS
     private var shift = Shift.OFF
+    private var calcOn = false
     private var lastShiftTap = 0L
 
     private val handler = Handler(Looper.getMainLooper())
@@ -49,6 +54,9 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
     // با نگه‌داشتن انگشت روی این حروف، حرف کوچک گوشه‌ی کلید نوشته می‌شود
     private val faAlt = mapOf("ا" to "آ", "ی" to "ئ", "و" to "ؤ", "ه" to "ء")
 
+    // نمادهای ستون کشویی صفحه‌ی اعداد
+    private val sideSymbols = listOf("+", "-", "*", "/", "(", ")")
+
     private val repeatDelete = object : Runnable {
         override fun run() {
             listener?.onDelete()
@@ -57,6 +65,7 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
     }
 
     init {
+        Grain.load(context)
         orientation = VERTICAL
         layoutDirection = LAYOUT_DIRECTION_LTR
         setPadding(dp(4), dp(8), dp(4), dp(6))
@@ -99,11 +108,16 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         if (shift != s) { shift = s; render() }
     }
 
+    fun setCalc(on: Boolean) {
+        calcOn = on
+        if (page == Page.NUMBERS) render()
+    }
+
     // ---------- ساخت UI ----------
     private fun dp(v: Int) = (v * density).toInt()
 
     private fun applyTheme() {
-        background = LeatherBackground(theme.bgTop, theme.bgBottom, theme.grain, density)
+        background = LeatherBackground(theme.bgTop, theme.bgBottom, theme.grain, theme.grainScale, density)
     }
 
     private fun render() {
@@ -127,9 +141,9 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         }
     }
 
-    private fun newRow() = LinearLayout(context).apply {
+    private fun newRow(h: Int = dp(52)) = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(54))
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, h)
     }
 
     private fun spacer(w: Float) = View(context).apply {
@@ -152,14 +166,14 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         addView(deleteKey(1.5f))
     }
 
+    /** ردیف پایین حروف/نمادها: نماد · اعداد · زبان · فاصله · نقطه · Enter (همه هم‌اندازه‌ی حروف) */
     private fun bottomRow(): LinearLayout = newRow().apply {
-        // نماد / برگشت به حروف
         val first = when {
             page == Page.LETTERS -> "@#"
             lang == Lang.FA -> "ابج"
             else -> "ABC"
         }
-        addView(makeKey(first, 1.4f, Kind.SPECIAL).also {
+        addView(makeKey(first, 1f, Kind.SPECIAL).also {
             it.setOnClickListener { v ->
                 tap(v)
                 page = if (page == Page.LETTERS) Page.SYMBOLS else Page.LETTERS
@@ -167,13 +181,12 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
             }
         })
 
-        // اعداد
-        addView(makeKey("123", 1.4f, Kind.SPECIAL).also {
+        addView(makeKey("123", 1f, Kind.SPECIAL).also {
             it.setOnClickListener { v -> tap(v); page = Page.NUMBERS; render() }
         })
 
         // زبان: کلیک = تغییر زبان، نگه‌داشتن = انتخاب کیبورد سیستم
-        addView(makeKey("", 1.4f, Kind.SPECIAL, Icon.GLOBE).also {
+        addView(makeKey("", 1f, Kind.SPECIAL, Icon.GLOBE).also {
             it.setOnClickListener { v ->
                 tap(v)
                 lang = if (lang == Lang.EN) Lang.FA else Lang.EN
@@ -185,7 +198,7 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         })
 
         // فاصله (در فارسی نگه‌داشتن = نیم‌فاصله)
-        addView(makeKey(if (lang == Lang.FA) "فارسی" else "English", 3.6f, Kind.SPECIAL).also {
+        addView(makeKey(if (lang == Lang.FA) "فارسی" else "English", 4.4f, Kind.SPECIAL).also {
             it.setTextColor(theme.hint)
             it.setOnClickListener { v -> tap(v); listener?.onText(" ") }
             if (lang == Lang.FA) {
@@ -203,36 +216,124 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         addView(enterKey(1.6f))
     }
 
-    /** صفحه‌ی اعداد: کیپد بزرگ */
+    /** صفحه‌ی اعداد: کیپد شبیه گوگل، با ستون کشویی نمادها در سمت چپ و ماشین‌حساب */
     private fun renderNumbers() {
-        val back = if (lang == Lang.FA) "ابج" else "ABC"
+        val rowH = dp(48)
+        addView(calcBar())
 
-        addView(newRow().apply {
-            addView(charKey("+", null, Kind.SPECIAL))
-            addView(charKey("1")); addView(charKey("2")); addView(charKey("3"))
-            addView(deleteKey(1f))
-        })
-        addView(newRow().apply {
-            addView(charKey("*", null, Kind.SPECIAL))
-            addView(charKey("4")); addView(charKey("5")); addView(charKey("6"))
-            addView(charKey("-", null, Kind.SPECIAL))
-        })
-        addView(newRow().apply {
-            addView(charKey("#", null, Kind.SPECIAL))
-            addView(charKey("7")); addView(charKey("8")); addView(charKey("9"))
-            addView(makeKey("", 1f, Kind.SPECIAL, Icon.SPACE).also {
-                it.setOnClickListener { v -> tap(v); listener?.onText(" ") }
-            })
-        })
-        addView(newRow().apply {
-            addView(makeKey(back, 1f, Kind.SPECIAL).also {
+        val block = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, rowH * 3)
+        }
+        block.addView(symbolScroller(rowH))
+
+        val grid = LinearLayout(context).apply {
+            orientation = VERTICAL
+            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 3f)
+        }
+        listOf("123", "456", "789").forEach { digits ->
+            val r = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
+            }
+            digits.forEach { r.addView(charKey(it.toString())) }
+            grid.addView(r)
+        }
+        block.addView(grid)
+
+        val spaceKey = makeKey("", 1f, Kind.SPECIAL, Icon.SPACE).also {
+            it.setOnClickListener { v -> tap(v); listener?.onText(" ") }
+        }
+        block.addView(verticalColumn(1f, charKey("%"), spaceKey, deleteKey(1f)))
+        addView(block)
+
+        // ردیف آخر: ABC , !?# 0 = . Enter
+        val back = if (lang == Lang.FA) "ابج" else "ABC"
+        addView(newRow(rowH).apply {
+            addView(makeKey(back, 1.3f, Kind.SPECIAL).also {
                 it.setOnClickListener { v -> tap(v); page = Page.LETTERS; render() }
             })
-            addView(charKey(","))
-            addView(charKey("0"))
-            addView(charKey("."))
-            addView(enterKey(1f))
+            addView(charKey(",").also { it.layoutParams = weightParams(0.8f) })
+            addView(makeKey("!?#", 1f, Kind.SPECIAL).also {
+                it.setOnClickListener { v -> tap(v); page = Page.SYMBOLS; render() }
+            })
+            addView(charKey("0").also { it.layoutParams = weightParams(1.5f) })
+            addView(charKey("=").also { it.layoutParams = weightParams(0.9f) })
+            addView(charKey(".").also { it.layoutParams = weightParams(0.8f) })
+            addView(enterKey(1.3f))
         })
+    }
+
+    private fun weightParams(w: Float) = LayoutParams(0, LayoutParams.MATCH_PARENT, w).apply {
+        setMargins(dp(2), dp(3), dp(2), dp(3))
+    }
+
+    private fun verticalColumn(weight: Float, vararg keys: TextView): LinearLayout = LinearLayout(context).apply {
+        orientation = VERTICAL
+        layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, weight)
+        keys.forEach { k ->
+            k.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply {
+                setMargins(dp(2), dp(3), dp(2), dp(3))
+            }
+            addView(k)
+        }
+    }
+
+    /** نوار بالای صفحه‌ی اعداد: کلید ماشین‌حساب (روشن/خاموش) */
+    private fun calcBar(): LinearLayout = newRow(dp(36)).apply {
+        addView(makeKey("", 1.2f, if (calcOn) Kind.NORMAL else Kind.SPECIAL, Icon.CALC).also {
+            it.setOnClickListener { v ->
+                tap(v)
+                calcOn = !calcOn
+                listener?.onCalcChanged(calcOn)
+                render()
+            }
+        })
+        addView(TextView(context).apply {
+            text = if (calcOn) "ماشین‌حساب روشن: بعد از = جواب می‌آید" else "ماشین‌حساب خاموش"
+            textSize = 12f
+            setTextColor(theme.hint)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, 0, 0)
+            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 3.8f)
+        })
+    }
+
+    /** ستون بلند و کشویی نمادها: + - * / ( ) ؛ با کشیدن انگشت بالا/پایین می‌رود */
+    private fun symbolScroller(rowH: Int): View {
+        val st = theme.normal
+        val pad = dp(4)
+        val inner = rowH * 3 - dp(6) - pad * 2
+        val itemH = (inner / 4.5f).toInt()
+        val sv = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+            background = keyBg(st, 77)
+            setPadding(pad, pad, pad, pad)
+            clipToPadding = true
+            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+                setMargins(dp(2), dp(3), dp(2), dp(3))
+            }
+        }
+        val col = LinearLayout(context).apply { orientation = VERTICAL }
+        sideSymbols.forEach { s ->
+            col.addView(TextView(context).apply {
+                text = s
+                gravity = Gravity.CENTER
+                textSize = 22f
+                isClickable = true
+                setTextColor(st.text)
+                if (theme.grain > 0f) setShadowLayer(1.2f * density, 0f, 1.2f * density, Color.argb(170, 0, 0, 0))
+                background = StateListDrawable().apply {
+                    addState(intArrayOf(android.R.attr.state_pressed), ColorDrawable(Color.argb(70, 0, 0, 0)))
+                    addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+                }
+                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, itemH)
+                setOnClickListener { v -> tap(v); listener?.onText(s) }
+            })
+        }
+        sv.addView(col)
+        return sv
     }
 
     private fun charKey(c: String, alt: String? = null, kind: Kind = Kind.NORMAL): TextView {
@@ -260,13 +361,14 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
     }
 
     private fun enterKey(weight: Float): TextView =
-        makeKey("", weight, Kind.ACCENT, Icon.ENTER).also {
+        makeKey("", weight, Kind.SPECIAL, Icon.ENTER).also {
             it.setOnClickListener { v -> tap(v); listener?.onEnter() }
         }
 
     private fun shiftKey(): TextView {
         val icon = when (shift) { Shift.OFF -> Icon.SHIFT; Shift.ON -> Icon.SHIFT_ON; Shift.CAPS -> Icon.CAPS }
-        return makeKey("", 1.5f, if (shift != Shift.OFF) Kind.ACCENT else Kind.SPECIAL, icon).also {
+        // شیفت فعال = رنگ چرم کنیاکی + آیکون پر
+        return makeKey("", 1.5f, if (shift != Shift.OFF) Kind.NORMAL else Kind.SPECIAL, icon).also {
             it.setOnClickListener { v ->
                 tap(v)
                 val now = System.currentTimeMillis()
@@ -309,11 +411,11 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         return StateListDrawable().apply {
             addState(
                 intArrayOf(android.R.attr.state_pressed),
-                LeatherDrawable(st, theme.grain, r, density, true, seed)
+                LeatherDrawable(st, theme.grain, theme.grainScale, theme.rimWidth, r, density, true, seed)
             )
             addState(
                 intArrayOf(),
-                LeatherDrawable(st, theme.grain, r, density, false, seed)
+                LeatherDrawable(st, theme.grain, theme.grainScale, theme.rimWidth, r, density, false, seed)
             )
         }
     }
@@ -325,11 +427,7 @@ class KeyboardView(context: Context, private var theme: KbTheme) : LinearLayout(
         icon: Icon? = null,
         corner: String? = null
     ): TextView {
-        val st = when (kind) {
-            Kind.NORMAL -> theme.normal
-            Kind.SPECIAL -> theme.special
-            Kind.ACCENT -> theme.accent
-        }
+        val st = if (kind == Kind.NORMAL) theme.normal else theme.special
         val shadow = if (theme.grain > 0f) Color.argb(170, 0, 0, 0) else null
         val cornerCol = Color.argb(150, Color.red(st.text), Color.green(st.text), Color.blue(st.text))
         val tv: TextView = KeyView(context, icon, corner, cornerCol, shadow)

@@ -6,7 +6,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.widget.TextView
 
-enum class Icon { GLOBE, SHIFT, SHIFT_ON, CAPS, BACKSPACE, ENTER, SPACE, CHECK, CROSS }
+enum class Icon { GLOBE, SHIFT, SHIFT_ON, CAPS, BACKSPACE, ENTER, SPACE, CHECK, CROSS, CALC }
 
 /**
  * یک کلید؛ متن عادی یا آیکون تک‌رنگ که با کد کشیده می‌شود (بدون ایموجی).
@@ -113,6 +113,17 @@ class KeyView(
             Icon.CROSS -> {
                 c.drawLine(cx - 0.7f * r, cy - 0.7f * r, cx + 0.7f * r, cy + 0.7f * r, p)
                 c.drawLine(cx + 0.7f * r, cy - 0.7f * r, cx - 0.7f * r, cy + 0.7f * r, p)
+            }
+            Icon.CALC -> {
+                c.drawRoundRect(cx - 0.8f * r, cy - 1.05f * r, cx + 0.8f * r, cy + 1.05f * r, 0.25f * r, 0.25f * r, p)
+                c.drawLine(cx - 0.5f * r, cy - 0.55f * r, cx + 0.5f * r, cy - 0.55f * r, p)
+                p.style = Paint.Style.FILL
+                val dr = 0.14f * r
+                c.drawCircle(cx - 0.33f * r, cy + 0.05f * r, dr, p)
+                c.drawCircle(cx + 0.33f * r, cy + 0.05f * r, dr, p)
+                c.drawCircle(cx - 0.33f * r, cy + 0.62f * r, dr, p)
+                c.drawCircle(cx + 0.33f * r, cy + 0.62f * r, dr, p)
+                p.style = Paint.Style.STROKE
             }
         }
     }
